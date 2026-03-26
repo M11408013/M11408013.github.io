@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cute Hand Tracking 🌸</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/addons/p5.sound.min.js"></script>
+    <script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
+
+    <style>
+      html, body { margin: 0; padding: 0; background-color: #fff0f5; overflow: hidden; font-family: 'Comic Sans MS', 'Nunito', 'Quicksand', sans-serif; }
+      
+      /* UI 控制群組 */
+      .nav-group { position: fixed; top: 20px; left: 20px; z-index: 2000; display: flex; gap: 10px; }
+      
+      .nav-btn { 
+        padding: 10px 15px; font-size: 0.85em; border-radius: 20px; font-weight: bold;
+        text-decoration: none; letter-spacing: 1px;
+        transition: all 0.3s; cursor: pointer;
+      }
+      
+      #back-btn { background: #ffe4e1; border: 2px solid #ffb6c1; color: #ff69b4; box-shadow: 0 4px 6px rgba(255,182,193,0.3); }
+      #reload-btn { background: #e6e6fa; border: 2px solid #dda0dd; color: #ba55d3; box-shadow: 0 4px 6px rgba(221,160,221,0.3); }
+      
+      .nav-btn:hover { transform: scale(1.05); box-shadow: 0 6px 12px rgba(0,0,0,0.1); }
+
+      #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fff0f5; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 1000; color: #ff69b4; }
+      .start-btn { background: #ffb6c1; border: none; border-radius: 30px; color: white; padding: 15px 40px; font-size: 1.2em; font-weight: bold; cursor: pointer; margin-top: 20px; letter-spacing: 2px; box-shadow: 0 4px 10px rgba(255,182,193,0.5); transition: transform 0.2s, background 0.2s; }
+      .start-btn:hover { transform: scale(1.1); background: #ff99cc; }
+      #status-log { position: fixed; bottom: 10px; left: 10px; color: #ff69b4; font-size: 14px; font-weight: bold; z-index: 2000; text-shadow: 1px 1px 2px white; }
+    </style>
+  </head>
+  <body>
+    <div class="nav-group">
+      <a href="../perception_demo.html" id="back-btn" class="nav-btn">🌸 HUB</a>
+      <div id="reload-btn" class="nav-btn" onclick="location.reload()">✨ RELOAD</div>
+    </div>
+    
+    <div id="status-log">LOG: SYSTEM IDLE 💤</div>
+
+    <div id="overlay">
+      <div style="letter-spacing: 4px; font-size: 2em; font-weight: bold;">🌸 CUTE HAND TRACKER 🌸</div>
+      <div id="loading-msg" style="margin-top:10px; font-size: 16px; color: #dda0dd;">✨ LOADING MAGIC... ✨</div>
+      <button id="init-btn" class="start-btn" onclick="initSystem()" style="display:none;">START DETECTING 💖</button>
+    </div>
+
+    <script>
+      let video, handPose, hands = [];
+      let isReady = false;
+      let smoothedAngle = [0, 0], lastTickAngle = [0, 0], smoothedPos = [{x:0, y:0}, {x:0, y:0}];
+      let mainColor, colors = ['#ffb6c1', '#dda0dd', '#add8e6'], colorIdx = 0;
+      let sparkleTimer = 0, osc, envelope, linkOsc;
+      let modelCheckTimer = 0;
+
+      let buttons = [
+        { label: 'COLOR 🎨', x: 40, y: 120, w: 100, h: 45, active: false },
+        { label: 'SPARKLE ✨', x: 40, y: 180, w: 100, h: 45, active: false }
+      ];
+
+      function setup() {
+        createCanvas(windowWidth, windowHeight);
+        mainColor = color(colors[colorIdx]);
+        
+        osc = new p5.Oscillator('sine');
+        envelope = new p5.Envelope();
+        envelope.setADSR(0.05, 0.1, 0.2, 0.5); // Softer sound
+        envelope.setRange(0.3, 0);
+
+        linkOsc = new p5.Oscillator('sine');
+        linkOsc.amp(0);
+        
+        handPose = ml5.handPose({ flipped: true, maxHands: 2 }, () => {
+          document.getElementById('loading-msg').style.display = 'none';
+          document.getElementById('init-btn').style.display = 'block';
+          updateLog("MAGIC ENGINE READY ✨");
+        });
+        angleMode(DEGREES);
+        textFont('Comic Sans MS');
+      }
+
+      function updateLog(msg) {
+        document.getElementById('status-log').innerText = `LOG: ${msg}`;
+      }
+
+      function initSystem() {
+        userStartAudio();
+        playBootSound();
+        video = createCapture(VIDEO, () => {
+          document.getElementById('overlay').style.display = 'none';
+          startDetection();
+        });
+        video.size(640, 480);
+        video.hide();
+      }
+
+      function startDetection() {
+        isReady = true;
+        updateLog("LOOKING FOR HANDS... 👀");
+        handPose.detectStart(video, results => {
+          hands = results;
+          modelCheckTimer = 0; // 只要有結果回來就重置計時器
+        });
+      }
+
+      function playTone(freq) { osc.freq(freq); osc.start(); envelope.play(osc); }
+
+      function playBootSound() {
+        let f = 400;
+        let interval = setInterval(() => {
+          playTone(f); f += 100;
+          if (f > 800) clearInterval(interval);
+        }, 100);
+      }
+
+      function draw() {
+        background(255, 240, 245); // pastel pink background
+        if (!isReady) return;
+
+        modelCheckTimer++;
+        if (modelCheckTimer > 180) { 
+          updateLog("WAITING FOR HANDS... 🥺");
+          startDetection();
+          modelCheckTimer = 0;
+        }
+
+        if (sparkleTimer > 0) {
+           sparkleTimer--;
+        }
+
+        push();
+        translate(width, 0); scale(-1, 1);
+        tint(255, 220); // lighter tint so it looks dreamy
+        image(video, 0, 0, width, height, 0, 0, video.width, video.height, COVER);
+        pop();
+
+        if (hands && hands.length > 0) {
+          for (let i = 0; i < hands.length; i++) {
+            let hand = hands[i];
+            let indexTip = hand.keypoints[8];
+            let tx = map(indexTip.x, 0, 640, 0, width);
+            let ty = map(indexTip.y, 0, 480, 0, height);
+
+            checkButtons(tx, ty);
+            drawCuteSkeleton(hand);
+            drawFingertips(hand);
+            drawCuteDial(hand, i);
+            drawCursor(tx, ty);
+          }
+
+          if (hands.length === 2) {
+            let d = dist(map(hands[0].keypoints[9].x,0,640,0,width), map(hands[0].keypoints[9].y,0,480,0,height),
+                         map(hands[1].keypoints[9].x,0,640,0,width), map(hands[1].keypoints[9].y,0,480,0,height));
+            let proximity = map(d, 100, 800, 1, 0, true);
+            drawHeartLink(hands[0], hands[1], proximity);
+            linkOsc.amp(map(proximity, 0, 1, 0.05, 0.2), 0.1);
+            linkOsc.freq(400 + proximity * 200);
+            linkOsc.start();
+          } else { linkOsc.amp(0, 0.5); }
+        } else {
+          linkOsc.amp(0, 0.5);
+          drawDreamyScanningUI();
+        }
+        drawVirtualButtons();
+
+        // Draw sparkles randomly if sparkleTimer is active
+        if (sparkleTimer > 0) {
+           for (let s = 0; s < 5; s++) {
+             fill(mainColor);
+             noStroke();
+             let sx = random(width);
+             let sy = random(height);
+             circle(sx, sy, random(3, 8));
+           }
+        }
+      }
+
+      function drawHeartLink(h1, h2, k) {
+        let p1x = map(h1.keypoints[9].x, 0, 640, 0, width);
+        let p1y = map(h1.keypoints[9].y, 0, 480, 0, height);
+        let p2x = map(h2.keypoints[9].x, 0, 640, 0, width);
+        let p2y = map(h2.keypoints[9].y, 0, 480, 0, height);
+
+        strokeWeight(8 + k * 10);
+        stroke(red(mainColor), green(mainColor), blue(mainColor), 150);
+        let cx = (p1x + p2x) / 2;
+        let cy = (p1y + p2y) / 2;
+        
+        beginShape(); noFill();
+        for(let t = 0; t <= 1; t += 0.05) {
+          let cx2 = lerp(p1x, p2x, t);
+          let cy2 = lerp(p1y, p2y, t);
+          let offset = sin(t * 180 + frameCount * 5) * (15 * k);
+          vertex(cx2, cy2 + offset);
+        }
+        endShape();
+
+        // Draw a heart in the middle
+        push();
+        translate(cx, cy);
+        scale(1 + k);
+        fill('#ff69b4');
+        noStroke();
+        textSize(30);
+        textAlign(CENTER, CENTER);
+        text('💖', 0, 0);
+        pop();
+      }
+
+      function drawCuteDial(hand, id) {
+        let wrist = hand.keypoints[0], middle = hand.keypoints[9];
+        let targetX = map(wrist.x, 0, 640, 0, width), targetY = map(wrist.y, 0, 480, 0, height);
+        let angle = atan2(middle.y - wrist.y, middle.x - wrist.x) + 90;
+        smoothedAngle[id] = lerp(smoothedAngle[id] || 0, angle, 0.15); 
+        smoothedPos[id].x = lerp(smoothedPos[id].x || targetX, targetX, 0.2);
+        smoothedPos[id].y = lerp(smoothedPos[id].y || targetY, targetY, 0.2);
+
+        if (abs(smoothedAngle[id] - lastTickAngle[id]) >= 20) {
+          playTone(800); lastTickAngle[id] = smoothedAngle[id];
+        }
+        
+        push();
+        translate(smoothedPos[id].x, smoothedPos[id].y);
+        rotate(smoothedAngle[id]);
+        
+        // Draw a cute flower dial instead of sci fi
+        noStroke();
+        fill(255, 255, 255, 180);
+        circle(0, 0, 90);
+        
+        fill(mainColor);
+        for(let i = 0; i < 8; i++) { 
+           push();
+           rotate(i * 45); 
+           circle(45, 0, 20); 
+           pop();
+        }
+        
+        fill('#ff69b4');
+        circle(0, 0, 60);
+
+        fill(255);
+        triangle(0, -20, -10, 0, 10, 0); // cute pointer
+        
+        pop();
+        fill('#ff69b4'); textAlign(CENTER); textSize(18); textStyle(BOLD); 
+        text(`${int(smoothedAngle[id])}°`, smoothedPos[id].x, smoothedPos[id].y + 70);
+      }
+
+      function checkButtons(x, y) {
+        buttons.forEach(btn => {
+          let isInside = x > btn.x && x < btn.x + btn.w && y > btn.y && y < btn.y + btn.h;
+          if (isInside && !btn.active) {
+            btn.active = true;
+            playTone(600);
+            if (btn.label === 'COLOR 🎨') { colorIdx = (colorIdx + 1) % colors.length; mainColor = color(colors[colorIdx]); }
+            else if (btn.label === 'SPARKLE ✨') { sparkleTimer = 40; playTone(900); }
+          } else if (!isInside) { btn.active = false; }
+        });
+      }
+
+      function drawCuteSkeleton(hand) {
+        stroke(mainColor);
+        strokeWeight(6);
+        let connections = handPose.getConnections();
+        for (let i = 0; i < connections.length; i++) {
+          let a = connections[i][0], b = connections[i][1];
+          line(map(hand.keypoints[a].x, 0, 640, 0, width), map(hand.keypoints[a].y, 0, 480, 0, height),
+               map(hand.keypoints[b].x, 0, 640, 0, width), map(hand.keypoints[b].y, 0, 480, 0, height));
+        }
+      }
+
+      function drawFingertips(hand) {
+        [4, 8, 12, 16, 20].forEach(idx => {
+          let k = hand.keypoints[idx];
+          let x = map(k.x, 0, 640, 0, width), y = map(k.y, 0, 480, 0, height);
+          fill(255); stroke(mainColor); strokeWeight(3); circle(x, y, 16);
+          // Optional: smaller text
+          // noStroke(); fill('#ff69b4'); textSize(10); text(`ID:${idx}`, x+15, y-10);
+        });
+      }
+
+      function drawVirtualButtons() {
+        buttons.forEach(btn => {
+          push(); translate(btn.x, btn.y);
+          noStroke(); 
+          fill(255, 255, 255, 200); rect(0, 0, btn.w, btn.h, 20); // rounded
+          
+          if (btn.active) { fill(mainColor); rect(0,0,btn.w,btn.h, 20); }
+          fill(btn.active ? 255 : '#ff69b4'); textAlign(CENTER, CENTER); textSize(12); textStyle(BOLD);
+          text(btn.label, btn.w/2, btn.h/2);
+          pop();
+        });
+      }
+
+      function drawCursor(tx, ty) {
+        fill(255); noStroke(); circle(tx, ty, 8);
+        fill(red(mainColor), green(mainColor), blue(mainColor), 100); 
+        circle(tx, ty, 25 + sin(frameCount*15)*10);
+      }
+
+      function drawDreamyScanningUI() {
+        noStroke();
+        fill(red(mainColor), green(mainColor), blue(mainColor), 50);
+        let scanY = (frameCount * 3) % height;
+        rect(0, scanY, width, 20);
+        // little stars inside the scan
+        fill(255, 150);
+        for(let i=0; i<5; i++){
+           circle(random(width), scanY + random(20), random(2, 5));
+        }
+      }
+
+      function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+    </script>
+  </body>
+</html>
